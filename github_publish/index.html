@@ -1,0 +1,462 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>B14 東涌田野調查 — 照片地圖</title>
+    <link rel="stylesheet" href="css/leaflet.css">
+    <link rel="stylesheet" href="css/MarkerCluster.css">
+    <link rel="stylesheet" href="css/MarkerCluster.Default.css">
+    <style>
+        :root {
+            --bg: #f6f5f1;
+            --panel: #ffffff;
+            --line: #e0ddd5;
+            --accent: #2e6f5e;
+            --accent-light: #e4efe9;
+            --highlight: #e08214;
+            --text: #26251f;
+            --muted: #6f6c62;
+        }
+        * { box-sizing: border-box; }
+        html, body { margin: 0; padding: 0; }
+        body {
+            font-family: -apple-system, "PingFang TC", "Noto Sans TC", "Microsoft JhengHei", sans-serif;
+            background: var(--bg);
+            color: var(--text);
+            height: 100%;
+        }
+        #app {
+            display: grid;
+            grid-template-columns: 280px minmax(0, 1fr) 500px;
+            grid-template-rows: auto minmax(0, 1fr);
+            grid-template-areas:
+                "top top top"
+                "filters map meta";
+            height: 100vh;
+        }
+        /* ---------- top bar ---------- */
+        #topbar {
+            grid-area: top;
+            display: flex;
+            align-items: baseline;
+            gap: 12px;
+            padding: 10px 16px;
+            background: var(--accent);
+            color: #fff;
+        }
+        #topbar h1 { margin: 0; font-size: 17px; font-weight: 600; }
+        #topbar .sub { font-size: 12px; opacity: .85; }
+        /* ---------- filters ---------- */
+        #filters {
+            grid-area: filters;
+            background: var(--panel);
+            border-right: 1px solid var(--line);
+            overflow-y: auto;
+            padding: 14px;
+        }
+        #count { font-size: 13px; color: var(--accent); font-weight: 600; margin: 0 0 12px; }
+        .filter-group { margin-bottom: 18px; }
+        .filter-group h3 {
+            margin: 0 0 6px;
+            font-size: 13px;
+            color: var(--muted);
+            text-transform: none;
+            letter-spacing: .02em;
+        }
+        .filter-actions { margin-bottom: 6px; }
+        .filter-actions button {
+            font-size: 12px;
+            padding: 3px 10px;
+            margin-right: 6px;
+            border: 1px solid var(--line);
+            border-radius: 4px;
+            background: var(--accent-light);
+            color: var(--accent);
+            cursor: pointer;
+        }
+        .filter-actions button:hover { background: #d3e5dc; }
+        .opt {
+            display: flex;
+            align-items: center;
+            gap: 7px;
+            padding: 3px 2px;
+            font-size: 13.5px;
+            cursor: pointer;
+            border-radius: 4px;
+        }
+        .opt:hover { background: #f1efe8; }
+        .opt input { accent-color: var(--accent); }
+        .opt .n { color: var(--muted); font-size: 11.5px; margin-left: auto; }
+        /* ---------- map ---------- */
+        #mapwrap { grid-area: map; position: relative; min-width: 0; min-height: 0; }
+        #map { position: absolute; inset: 0; background: #dfe8e4; }
+        /* ---------- metadata panel ---------- */
+        #meta {
+            grid-area: meta;
+            background: var(--panel);
+            border-left: 1px solid var(--line);
+            overflow-y: auto;
+            padding: 16px;
+        }
+        #meta h2 { margin: 0 0 12px; font-size: 15px; color: var(--accent); }
+        #photo-box { margin-bottom: 14px; }
+        #photo-box img {
+            width: 100%;
+            max-height: 400px;
+            object-fit: contain;
+            border-radius: 6px;
+            border: 1px solid var(--line);
+            background: #eceae3;
+            display: block;
+        }
+        .meta-table { width: 100%; border-collapse: collapse; font-size: 13.5px; }
+        .meta-table th {
+            text-align: left;
+            vertical-align: top;
+            white-space: nowrap;
+            width: 1%;
+            padding: 6px 10px 6px 0;
+            color: var(--muted);
+            font-weight: 500;
+            border-bottom: 1px solid var(--line);
+        }
+        .meta-table td { padding: 6px 0; border-bottom: 1px solid var(--line); word-break: break-word; }
+        .placeholder { color: var(--muted); font-size: 13.5px; line-height: 1.6; padding-top: 30px; text-align: center; }
+        #meta-img-error { display: none; color: #a33; font-size: 13px; margin-top: 8px; }
+        /* popup thumbnail */
+        .photo-popup img { max-width: 180px; display: block; border-radius: 4px; }
+        .photo-popup b { display: block; margin-bottom: 4px; font-size: 13px; }
+        /* ---------- legend (location_precision) ---------- */
+        #legend {
+            position: absolute;
+            right: 10px;
+            bottom: 30px;
+            z-index: 1000;
+            background: rgba(255, 255, 255, .95);
+            border: 1px solid var(--line);
+            border-radius: 6px;
+            padding: 8px 12px;
+            font-size: 12px;
+            box-shadow: 0 1px 4px rgba(0, 0, 0, .15);
+        }
+        .lg-title { font-weight: 600; margin-bottom: 5px; color: var(--muted); font-size: 11px; }
+        .lg-row { display: flex; align-items: center; gap: 7px; margin: 4px 0; }
+        .lg-dot { width: 12px; height: 12px; border-radius: 50%; flex: none; }
+        .lg-exact   { background: #729b6f; border: 1px solid #232323; }
+        .lg-village { background: #e0a458; border: 1px solid #6e4a1a; }
+        .lg-approx  { background: rgba(255, 255, 255, .5); border: 1.5px dashed #6e4a1a; }
+        /* ---------- responsive ---------- */
+        @media (max-width: 1100px) {
+            #app {
+                grid-template-columns: 1fr 1.4fr;
+                grid-template-rows: auto 55vh auto;
+                grid-template-areas:
+                    "top top"
+                    "map map"
+                    "filters meta";
+                height: auto;
+                min-height: 100vh;
+            }
+            #filters { border-right: none; border-top: 1px solid var(--line); max-height: none; overflow: visible; }
+            #meta { border-left: 1px solid var(--line); }
+        }
+        @media (max-width: 640px) {
+            #app {
+                grid-template-columns: 1fr;
+                grid-template-rows: auto 45vh auto auto;
+                grid-template-areas:
+                    "top"
+                    "map"
+                    "filters"
+                    "meta";
+            }
+            #meta { border-left: none; border-top: 1px solid var(--line); }
+            #topbar h1 { font-size: 15px; }
+        }
+    </style>
+</head>
+<body>
+    <div id="app">
+        <header id="topbar">
+            <h1>B14 東涌田野調查 — 照片地圖</h1>
+            <span class="sub">Filters | Interactive Map | Photograph &amp; Metadata</span>
+        </header>
+
+        <aside id="filters">
+            <p id="count">載入中…</p>
+            <div id="filter-groups"></div>
+        </aside>
+
+        <main id="mapwrap">
+            <div id="map"></div>
+            <div id="legend">
+                <div class="lg-title">Location precision</div>
+                <div class="lg-row"><span class="lg-dot lg-exact"></span>Exact</div>
+                <div class="lg-row"><span class="lg-dot lg-village"></span>Village-level</div>
+                <div class="lg-row"><span class="lg-dot lg-approx"></span>Approximate</div>
+            </div>
+        </main>
+
+        <section id="meta">
+            <h2>Photograph &amp; Metadata</h2>
+            <div id="meta-body">
+                <p class="placeholder">點選地圖上的照片標記，<br>即可在此顯示照片與詮釋資料。</p>
+            </div>
+        </section>
+    </div>
+
+    <script src="js/leaflet.js"></script>
+    <script src="js/leaflet.markercluster.js"></script>
+    <script src="data/B14_2.js"></script>
+    <script>
+    (function () {
+        'use strict';
+
+        var FEATURES = json_B14_2.features;
+        var FILTER_FIELDS = ['place_name', 'photo_subject', 'location_precision'];
+        var FIELD_LABELS = {
+            'file_name': 'File name',
+            'place_name': 'Place name',
+            'capture_date': 'Capture date',
+            'photo_subject': 'Photo subject',
+            'direction': 'Direction',
+            'location_precision': 'Location precision',
+            'location_source': 'Location source',
+            'notes': 'Notes',
+            'location_note': 'Location note'
+        };
+        var META_FIELDS = ['file_name', 'place_name', 'capture_date', 'photo_subject',
+                           'direction', 'location_precision', 'location_source',
+                           'notes', 'location_note'];
+        var EMPTY_LABEL = '(未填)';
+
+        function esc(s) {
+            return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;')
+                            .replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+        }
+        function val(props, field) {
+            var v = props[field];
+            return (v === null || v === undefined || String(v).trim() === '') ? EMPTY_LABEL : String(v);
+        }
+        /* photo_path (absolute mac path) -> file name inside images/, same rule as index.html */
+        function photoSrc(props) {
+            var name = String(props.photo_path || '').replace(/[\\/:]/g, '_').trim();
+            return 'images/' + encodeURI(name);
+        }
+
+        /* ================= map ================= */
+        var map = L.map('map', { zoomControl: true, maxZoom: 28, minZoom: 1 });
+        /* start centred on the photo archive itself: the original index.html
+           fitBounds covers a much wider area whose centre falls well west of
+           the B14 data points, which pushes the village off-screen when the
+           map column is narrower */
+        var dataBounds = L.latLngBounds(FEATURES.map(function (f) {
+            return [f.geometry.coordinates[1], f.geometry.coordinates[0]];
+        }));
+        map.fitBounds(dataBounds, { padding: [30, 30] });
+
+        map.createPane('pane_OPM100_2025_0');
+        map.getPane('pane_OPM100_2025_0').style.zIndex = 400;
+        L.imageOverlay('data/OPM100_2025_0.png',
+                       [[22.076205181083964,113.75167100210537],[22.624727555473488,114.51155829843452]],
+                       { pane: 'pane_OPM100_2025_0' }).addTo(map);
+
+        map.createPane('pane_63G9SE13C00_1');
+        map.getPane('pane_63G9SE13C00_1').style.zIndex = 401;
+        /* The original export shipped this overlay as a 50 MB PNG whose alpha
+           channel was a uniform 90/255 (= 35.3%) over the whole sheet. It is
+           stored here as an opaque JPEG, so the same blend is reproduced with
+           an explicit opacity — visually identical, ~92% smaller. */
+        L.imageOverlay('data/63G9SE13C00_1.jpg',
+                       [[22.26823893534846,113.92685292077452],[22.27366830962505,113.93413930605514]],
+                       { pane: 'pane_63G9SE13C00_1', opacity: 0.35294 }).addTo(map);
+
+        map.createPane('pane_B14_2');
+        map.getPane('pane_B14_2').style.zIndex = 402;
+
+        /* marker style by location_precision */
+        var PRECISION_STYLES = {
+            'Exact':         { fillColor: 'rgba(114,155,111,1.0)', fillOpacity: 1,
+                               color: 'rgba(35,35,35,1.0)', weight: 1, dashArray: '' },
+            'Village-level': { fillColor: 'rgba(224,164,88,1.0)', fillOpacity: 1,
+                               color: 'rgba(110,74,26,1.0)', weight: 1, dashArray: '' },
+            'Approximate':   { fillColor: 'rgba(255,255,255,0.9)', fillOpacity: 0.45,
+                               color: 'rgba(110,74,26,1.0)', weight: 1.5, dashArray: '5 3' }
+        };
+        function defaultStyle(props) {
+            var s = PRECISION_STYLES[props && props.location_precision] || PRECISION_STYLES['Exact'];
+            return Object.assign({ radius: 9.2, opacity: 1, fill: true }, s);
+        }
+        function highlightStyle() {
+            return { radius: 14, opacity: 1, color: '#e08214', weight: 4,
+                     fill: true, fillOpacity: 1, fillColor: '#ffd54f' };
+        }
+
+        var markers = [];
+        FEATURES.forEach(function (f) {
+            var c = f.geometry.coordinates;
+            var m = L.circleMarker([c[1], c[0]], Object.assign({ pane: 'pane_B14_2' }, defaultStyle(f.properties)));
+            m.feature = f;
+            m.bindTooltip(val(f.properties, 'place_name'), { direction: 'top', offset: [0, -10] });
+            m.bindPopup(
+                '<div class="photo-popup"><b>' + esc(val(f.properties, 'file_name')) + '</b>' +
+                '<img src="' + photoSrc(f.properties) + '" alt="photo"></div>',
+                { maxWidth: 200 }
+            );
+            m.on('click', function () { selectMarker(m); });
+            m.__inCluster = true;   /* markercluster: prefer incremental add/remove */
+            markers.push(m);
+        });
+
+        var cluster = L.markerClusterGroup({ showCoverageOnHover: false, spiderfyDistanceMultiplier: 2 });
+        cluster.addLayers(markers);
+        cluster.addTo(map);
+
+        /* ================= selection / metadata panel ================= */
+        var selectedMarker = null;
+        var metaBody = document.getElementById('meta-body');
+
+        function selectMarker(m) {
+            if (selectedMarker && selectedMarker !== m) {
+                selectedMarker.setStyle(defaultStyle(selectedMarker.feature.properties));
+            }
+            selectedMarker = m;
+            m.setStyle(highlightStyle());
+            if (m.bringToFront) { try { m.bringToFront(); } catch (e) {} }
+            renderMeta(m.feature.properties);
+        }
+        function clearSelection() {
+            if (selectedMarker) {
+                selectedMarker.setStyle(defaultStyle(selectedMarker.feature.properties));
+                selectedMarker = null;
+            }
+            renderMeta(null);
+        }
+        function renderMeta(props) {
+            if (!props) {
+                metaBody.innerHTML = '<p class="placeholder">點選地圖上的照片標記，<br>即可在此顯示照片與詮釋資料。</p>';
+                return;
+            }
+            var rows = META_FIELDS.map(function (f) {
+                return '<tr><th>' + esc(FIELD_LABELS[f]) + '</th><td>' + esc(val(props, f)) + '</td></tr>';
+            }).join('');
+            metaBody.innerHTML =
+                '<div id="photo-box"><img id="meta-img" src="' + photoSrc(props) + '" alt="photograph">' +
+                '<p id="meta-img-error">找不到對應的圖片檔：' + esc(photoSrc(props)) + '</p></div>' +
+                '<table class="meta-table">' + rows + '</table>';
+            var img = document.getElementById('meta-img');
+            var err = document.getElementById('meta-img-error');
+            img.addEventListener('error', function () {
+                img.style.display = 'none';
+                err.style.display = 'block';
+            });
+        }
+
+        /* ================= filters ================= */
+        var selected = {};   /* field -> Set of chosen values */
+        FILTER_FIELDS.forEach(function (f) {
+            selected[f] = new Set();
+        });
+
+        /* collect unique values + counts */
+        var values = {};     /* field -> Map(value -> count) */
+        FILTER_FIELDS.forEach(function (f) {
+            var m = new Map();
+            FEATURES.forEach(function (feat) {
+                var v = val(feat.properties, f);
+                m.set(v, (m.get(v) || 0) + 1);
+            });
+            values[f] = m;
+            m.forEach(function (_c, v) { selected[f].add(v); });
+        });
+
+        var groupsEl = document.getElementById('filter-groups');
+
+        function buildGroup(field) {
+            var wrap = document.createElement('div');
+            wrap.className = 'filter-group';
+            var h = document.createElement('h3');
+            h.textContent = FIELD_LABELS[field] || field;
+            wrap.appendChild(h);
+
+            var actions = document.createElement('div');
+            actions.className = 'filter-actions';
+            var btnAll = document.createElement('button');
+            btnAll.textContent = 'Select all';
+            var btnClear = document.createElement('button');
+            btnClear.textContent = 'Clear';
+            actions.appendChild(btnAll);
+            actions.appendChild(btnClear);
+            wrap.appendChild(actions);
+
+            var list = document.createElement('div');
+            var boxes = [];
+            Array.from(values[field].keys())
+                 .sort(function (a, b) { return a.localeCompare(b, 'zh-Hant'); })
+                 .forEach(function (v) {
+                var label = document.createElement('label');
+                label.className = 'opt';
+                var cb = document.createElement('input');
+                cb.type = 'checkbox';
+                cb.checked = true;
+                cb.value = v;
+                var span = document.createElement('span');
+                span.textContent = v;
+                var n = document.createElement('span');
+                n.className = 'n';
+                n.textContent = values[field].get(v);
+                label.appendChild(cb);
+                label.appendChild(span);
+                label.appendChild(n);
+                list.appendChild(label);
+                boxes.push({ cb: cb, v: v });
+                cb.addEventListener('change', function () {
+                    if (cb.checked) { selected[field].add(v); }
+                    else { selected[field].delete(v); }
+                    applyFilter();
+                });
+            });
+            wrap.appendChild(list);
+
+            btnAll.addEventListener('click', function () {
+                boxes.forEach(function (b) { b.cb.checked = true; selected[field].add(b.v); });
+                applyFilter();
+            });
+            btnClear.addEventListener('click', function () {
+                boxes.forEach(function (b) { b.cb.checked = false; selected[field].delete(b.v); });
+                applyFilter();
+            });
+
+            groupsEl.appendChild(wrap);
+        }
+        FILTER_FIELDS.forEach(buildGroup);
+
+        var countEl = document.getElementById('count');
+
+        function passes(props) {
+            return FILTER_FIELDS.every(function (f) {
+                return selected[f].has(val(props, f));
+            });
+        }
+        function applyFilter() {
+            var shown = 0;
+            /* incremental add/remove: bulk clearLayers()+addLayers() breaks
+               re-clustering on zoom in this markercluster version */
+            markers.forEach(function (m) {
+                var show = passes(m.feature.properties);
+                if (show && !m.__inCluster) { cluster.addLayer(m); m.__inCluster = true; }
+                else if (!show && m.__inCluster) { cluster.removeLayer(m); m.__inCluster = false; }
+                if (show) { shown++; }
+            });
+            if (selectedMarker && !passes(selectedMarker.feature.properties)) {
+                selectedMarker = null;
+                renderMeta(null);
+            }
+            countEl.textContent = '目前顯示記錄：' + shown + ' / ' + FEATURES.length + ' 筆';
+        }
+        applyFilter();
+    })();
+    </script>
+</body>
+</html>
